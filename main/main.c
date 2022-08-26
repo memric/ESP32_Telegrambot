@@ -6,9 +6,7 @@
 #include "nvs_flash.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
-
-#include "esp_tls.h"
-#include "esp_crt_bundle.h"
+#include "telegram_bot.h"
 
 /* The event group allows multiple bits for each event, but we only care about two events:
  * - we are connected to the AP with an IP
@@ -16,24 +14,11 @@
 #define WIFI_CONNECTED_BIT	BIT0
 #define WIFI_FAIL_BIT		BIT1
 
-#define WEB_SERVER 			"api.telegram.org"
-#define BOT_TOKEN			"523164356:AAFz9slk922jd0usbGzoNbYR4N8f3RFVr44"
-#define WEB_URL 			"https://api.telegram.org/bot"BOT_TOKEN"/getMe"
-
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 
 static const char *TAG = "MAIN";
-
-static const char REQUEST[] = "GET /bot"BOT_TOKEN"/getMe HTTP/1.1\r\n"
-                             "Host: "WEB_SERVER"\r\n"
-//                             "User-Agent: esp-idf/1.0 esp32\r\n"
-//							 "Connection: keep-alive\r\n"
-                             "\r\n";
-
-extern const uint8_t telegram_cert_pem_start[] asm("_binary_telegram_cert_pem_start");
-extern const uint8_t telegram_cert_pem_end[]   asm("_binary_telegram_cert_pem_end");
 
 esp_err_t event_handler(void *ctx, system_event_t *event)
 {
@@ -68,95 +53,6 @@ static void wifi_event_handler(void* arg, esp_event_base_t event_base,
 		s_retry_num = 0;
 		xEventGroupSetBits(s_wifi_event_group, WIFI_CONNECTED_BIT);
 	}
-}
-
-static void https_get_request(esp_tls_cfg_t cfg)
-{
-    char buf[512];
-    int ret, len;
-
-    struct esp_tls *tls = esp_tls_conn_http_new(WEB_URL, &cfg);
-
-    if (tls != NULL) {
-        ESP_LOGI(TAG, "Connection established...");
-    } else {
-        ESP_LOGE(TAG, "Connection failed...");
-        goto exit;
-    }
-
-    ESP_LOGI(TAG, "Request size %d", sizeof(REQUEST));
-    ESP_LOGI(TAG, "Request: %s", REQUEST);
-
-    size_t written_bytes = 0;
-    do {
-        ret = esp_tls_conn_write(tls,
-                                 REQUEST + written_bytes,
-                                 sizeof(REQUEST) - 1 - written_bytes);
-        if (ret >= 0) {
-            ESP_LOGI(TAG, "%d bytes written", ret);
-            written_bytes += ret;
-        } else if (ret != ESP_TLS_ERR_SSL_WANT_READ  && ret != ESP_TLS_ERR_SSL_WANT_WRITE) {
-            ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
-            goto exit;
-        }
-    } while (written_bytes < sizeof(REQUEST) - 1);
-
-    ESP_LOGI(TAG, "Reading HTTP response...");
-
-
-    do {
-        len = sizeof(buf) - 1;
-        bzero(buf, sizeof(buf));
-        ret = esp_tls_conn_read(tls, (char *)buf, len);
-
-        if (ret == ESP_TLS_ERR_SSL_WANT_WRITE  || ret == ESP_TLS_ERR_SSL_WANT_READ) {
-            continue;
-        }
-
-        if (ret < 0) {
-            ESP_LOGE(TAG, "esp_tls_conn_read  returned [-0x%02X](%s)", -ret, esp_err_to_name(ret));
-            break;
-        }
-
-        if (ret == 0) {
-            ESP_LOGI(TAG, "connection closed");
-            break;
-        }
-
-        len = ret;
-        ESP_LOGD(TAG, "%d bytes read", len);
-        /* Print response directly to stdout as it is read */
-        for (int i = 0; i < len; i++) {
-            putchar(buf[i]);
-        }
-        putchar('\n'); // JSON output doesn't have a newline at end
-    } while (1);
-
-exit:
-    esp_tls_conn_delete(tls);
-//    for (int countdown = 10; countdown >= 0; countdown--) {
-//        ESP_LOGI(TAG, "%d...", countdown);
-//        vTaskDelay(1000 / portTICK_PERIOD_MS);
-//    }
-}
-
-static void https_get_request_using_crt_bundle(void)
-{
-    ESP_LOGI(TAG, "https_request using crt bundle");
-    esp_tls_cfg_t cfg = {
-        .crt_bundle_attach = esp_crt_bundle_attach,
-    };
-    https_get_request(cfg);
-}
-
-static void https_get_request_using_cacert_buf(void)
-{
-    ESP_LOGI(TAG, "https_request using cacert_buf");
-    esp_tls_cfg_t cfg = {
-        .cacert_buf = (const unsigned char *) telegram_cert_pem_start,
-        .cacert_bytes = telegram_cert_pem_end - telegram_cert_pem_start,
-    };
-    https_get_request(cfg);
 }
 
 void app_main(void)
@@ -224,8 +120,8 @@ void app_main(void)
     		{
     			ESP_LOGI(TAG, "Connected to AP SSID:%s", CONFIG_ESP_WIFI_SSID);
 
-//    			https_get_request_using_crt_bundle();
-    			https_get_request_using_cacert_buf();
+    			/*Start Telegram bot*/
+    			TeleBot_Init();
     		}
     		else if (bits & WIFI_FAIL_BIT)
     		{
