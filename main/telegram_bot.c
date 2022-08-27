@@ -10,7 +10,10 @@
 #include "esp_log.h"
 #include "esp_tls.h"
 #include "esp_crt_bundle.h"
+#include "cJSON/cJSON.h"
 #include <stdio.h>
+#include <stdint.h>
+#include <string.h>
 
 #ifndef USE_TLS_BUNDLE
 #define USE_TLS_BUNDLE		0
@@ -32,8 +35,9 @@ extern const uint8_t telegram_cert_pem_end[]   asm("_binary_telegram_cert_pem_en
 #endif
 char url[256];
 char buf[512];
+char resp[512] = {0};
 
-static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd);
+static int32_t TeleBot_Get_Request(const char *http_mthd, const char *t_mthd, char *resp, uint32_t resp_len);
 static void TeleBot_Task(void *arg);
 
 void TeleBot_Init(void)
@@ -41,9 +45,11 @@ void TeleBot_Init(void)
 	xTaskCreate(TeleBot_Task, "Telegram Bot", 1024*6, NULL, 3, &telebot_task);
 }
 
-static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
+static int32_t TeleBot_Get_Request(const char *http_mthd, const char *t_mthd, char *resp, uint32_t resp_len)
 {
     int ret, len;
+    int32_t ret_len = 0;
+//    char *pcopy = resp;
 
 #if USE_TLS_BUNDLE
     ESP_LOGI(TAG, "https_request using crt bundle");
@@ -61,7 +67,7 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
     /*Compose url*/
     len = snprintf(url, sizeof(url), ""WEB_URL"%s/%s", BOT_TOKEN, t_mthd);
 
-    if (len < 0) return;
+    if (len < 0) return -1;
 
     ESP_LOGD(TAG, "HTTPS url: %s", url);
 
@@ -79,7 +85,7 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
 				"\r\n",
 				http_mthd, BOT_TOKEN, t_mthd);
 
-        if (len < 0) return;
+        if (len < 0) return -1;
 
         ESP_LOGD(TAG, "HTTP Request: %s", buf);
 
@@ -105,7 +111,7 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
         	ESP_LOGI(TAG, "Reading HTTP response...");
 
         	do {
-        		len = sizeof(buf) - 1;
+        		len = sizeof(buf);
         		bzero(buf, sizeof(buf));
         		ret = esp_tls_conn_read(tls, (char *) buf, len);
 
@@ -130,6 +136,26 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
         			putchar(buf[i]);
         		}
         		putchar('\n'); // JSON output doesn't have a newline at end
+
+        		/*JSON beginning searching*/
+        		char *pch = strstr(buf, "\r\n{");
+        		if (pch != NULL)
+        		{
+        			ret_len = 0;
+        			len -= (pch - buf);
+        		}
+        		else
+        		{
+        			pch = buf;
+        		}
+        		/*Copy response*/
+        		while ((len > 0) && (ret_len < resp_len))
+        		{
+        			*resp++ = *pch++;
+        			ret_len++;
+        			len--;
+        		}
+
         	} while (ret != 0);
         }
     }
@@ -139,6 +165,39 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
     }
 
     esp_tls_conn_delete(tls);
+
+    return ret_len;
+}
+
+static void TeleBot_GetUpdates(void)
+{
+	int32_t rx_len = TeleBot_Get_Request("GET", "getUpdates", resp, sizeof(resp));
+
+	if (rx_len > 0)
+	{
+		ESP_LOGD(TAG, "Resp: %s", resp);
+
+		cJSON *json = cJSON_ParseWithLength(resp, sizeof(resp));
+
+		if (json != NULL)
+		{
+			cJSON *result = cJSON_GetObjectItemCaseSensitive(json, "result");
+			cJSON *res_item;
+			cJSON_ArrayForEach(res_item, result)
+			{
+				cJSON *message = cJSON_GetObjectItemCaseSensitive(res_item, "message");
+				cJSON *text = cJSON_GetObjectItemCaseSensitive(message, "text");
+
+				if (text != NULL)
+				{
+					cJSON *chat = cJSON_GetObjectItemCaseSensitive(message, "chat");
+					cJSON *chat_id = cJSON_GetObjectItemCaseSensitive(chat, "id");
+
+					ESP_LOGI(TAG, "Message from %d: %s", chat_id->valueint, text->valuestring);
+				}
+			}
+		}
+	}
 }
 
 /**
@@ -150,7 +209,7 @@ static void TeleBot_Task(void *arg)
 
 	while (1)
 	{
-		TeleBot_Get_Request("GET", "getUpdates");
+		TeleBot_GetUpdates();
 		vTaskDelay(1000 / portTICK_PERIOD_MS);
 	}
 }
