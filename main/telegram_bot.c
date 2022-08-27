@@ -23,10 +23,6 @@
 #define HTTP_METHOD_GET		"GET"
 #define HTTP_METHOD_POST	"POST"
 
-//static const char REQUEST[] = "GET /bot"BOT_TOKEN"/getMe HTTP/1.1\r\n"
-//                             "Host: "WEB_SERVER"\r\n"
-//                             "\r\n";
-
 static const char *TAG = "TELEGRAM";
 static TaskHandle_t telebot_task = NULL;
 
@@ -36,14 +32,13 @@ extern const uint8_t telegram_cert_pem_end[]   asm("_binary_telegram_cert_pem_en
 #endif
 char url[256];
 char buf[512];
-char rx_buf[512];
 
 static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd);
 static void TeleBot_Task(void *arg);
 
 void TeleBot_Init(void)
 {
-	xTaskCreate(TeleBot_Task, "Telegram Bot", 1024*8, NULL, 3, &telebot_task);
+	xTaskCreate(TeleBot_Task, "Telegram Bot", 1024*6, NULL, 3, &telebot_task);
 }
 
 static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
@@ -68,7 +63,7 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
 
     if (len < 0) return;
 
-    ESP_LOGI(TAG, "HTTPS url: %s", url);
+    ESP_LOGD(TAG, "HTTPS url: %s", url);
 
     struct esp_tls *tls = esp_tls_conn_http_new(url, &cfg);
 
@@ -79,13 +74,14 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
         /*Compose request*/
         len = snprintf(buf, sizeof(buf), "%s /bot%s/%s HTTP/1.1\r\n"
         		"Host: "WEB_SERVER"\r\n"
-//				"Connection: keep-alive"
+//                "User-Agent: esp-idf/1.0 esp32\r\n"
+				"Connection: close\r\n"
 				"\r\n",
 				http_mthd, BOT_TOKEN, t_mthd);
 
         if (len < 0) return;
 
-        ESP_LOGI(TAG, "HTTP Request: %s", buf);
+        ESP_LOGD(TAG, "HTTP Request: %s", buf);
 
         size_t written_bytes = 0;
         do {
@@ -100,23 +96,18 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
         	else if (ret != ESP_TLS_ERR_SSL_WANT_READ  && ret != ESP_TLS_ERR_SSL_WANT_WRITE)
         	{
         		ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
-        		goto exit;
-//        		break;
+        		break;
         	}
         } while (written_bytes < len);
-
-        printf("Minimum free heap size: %d bytes\n", esp_get_minimum_free_heap_size());
 
         if (written_bytes == len)
         {
         	ESP_LOGI(TAG, "Reading HTTP response...");
 
         	do {
-        		len = sizeof(rx_buf) - 1;
-        		bzero(rx_buf, sizeof(rx_buf));
-        		ret = esp_tls_conn_read(tls, (char *) rx_buf, len);
-
-        		ESP_LOGI(TAG, "ret==%i", ret);
+        		len = sizeof(buf) - 1;
+        		bzero(buf, sizeof(buf));
+        		ret = esp_tls_conn_read(tls, (char *) buf, len);
 
         		if (ret == ESP_TLS_ERR_SSL_WANT_WRITE  || ret == ESP_TLS_ERR_SSL_WANT_READ) {
         			continue;
@@ -136,7 +127,7 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
         		ESP_LOGD(TAG, "%d bytes read", len);
         		/* Print response directly to stdout as it is read */
         		for (int i = 0; i < len; i++) {
-        			putchar(rx_buf[i]);
+        			putchar(buf[i]);
         		}
         		putchar('\n'); // JSON output doesn't have a newline at end
         	} while (ret != 0);
@@ -147,7 +138,6 @@ static void TeleBot_Get_Request(const char * http_mthd, const char *t_mthd)
         ESP_LOGE(TAG, "Connection failed...");
     }
 
-exit:
     esp_tls_conn_delete(tls);
 }
 
