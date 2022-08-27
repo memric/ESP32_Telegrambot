@@ -20,8 +20,10 @@
 #endif
 
 #define WEB_SERVER 			"api.telegram.org"
-#define BOT_TOKEN			"523164356:AAFz9slk922jd0usbGzoNbYR4N8f3RFVr44"
 #define WEB_URL 			"https://api.telegram.org/bot"
+#define BOT_TOKEN			CONFIG_TG_BOT_TOKEN
+
+#define UPDATE_TIMEOUT		5
 
 #define HTTP_METHOD_GET		"GET"
 #define HTTP_METHOD_POST	"POST"
@@ -202,7 +204,7 @@ static int32_t TeleBot_GetUpdates(int32_t *id)
 
 	if (message != NULL)
 	{
-		cJSON *msg_timeout = cJSON_CreateNumber(5);
+		cJSON *msg_timeout = cJSON_CreateNumber(UPDATE_TIMEOUT);
 		cJSON *msg_offset = cJSON_CreateNumber(*id);
 
 		if (msg_timeout != NULL && msg_offset != NULL)
@@ -231,6 +233,7 @@ static int32_t TeleBot_GetUpdates(int32_t *id)
 						int32_t updt_id_val = upd_id->valueint;
 						if (updt_id_val >= *id)
 						{
+							/*Recalculate offset*/
 							*id = updt_id_val + 1;
 						}
 
@@ -303,10 +306,12 @@ static void TeleBot_Task(void *arg)
 
 	while (1)
 	{
+		/*Get updates*/
 		resp_len = TeleBot_GetUpdates(&id);
 
 		if (resp_len > 0 && id != -1)
 		{
+			memset(resp, 0, resp_len);
 		}
 
 		vTaskDelay(1000 / portTICK_PERIOD_MS);
