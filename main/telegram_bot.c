@@ -46,18 +46,34 @@ static void TeleBot_Task(void *arg);
 int32_t TeleBot_SendMessage(uint32_t chat_id, const char *msg);
 void TeleBot_MessageCallback(uint32_t chat_id, const char *msg);
 
+/**
+ * @brief	Bot initialization
+ *
+ */
 void TeleBot_Init(void)
 {
 	xTaskCreate(TeleBot_Task, "Telegram Bot", 1024*6, NULL, 3, &telebot_task);
 }
 
+/**
+ * @brief 	Connects to Telegram bot server, sends http request and
+ * 			gets response
+ *
+ * @param http_mthd	HTTP method GET or POST
+ * @param t_mthd	Telegram method
+ * @param req		Request string (JSON)
+ * @param req_len	Request length
+ * @param resp		Pointer to buffer for response from server
+ * @param resp_len	Response lengthp
+ * @return
+ */
 static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
 		char *req, uint32_t req_len,
 		char *resp, uint32_t resp_len)
 {
-    int ret, len;
+	int32_t ret, len;
+	int32_t http_req_len = 0;
     int32_t ret_len = 0;
-//    char *pcopy = resp;
 
 #if USE_TLS_BUNDLE
     ESP_LOGI(TAG, "https_request using crt bundle");
@@ -79,107 +95,134 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
 
     ESP_LOGD(TAG, "HTTPS url: %s", url);
 
+    /*Set connection*/
     struct esp_tls *tls = esp_tls_conn_http_new(url, &cfg);
 
     if (tls != NULL)
     {
         ESP_LOGI(TAG, "Connection established...");
 
-        /*Compose request*/
+        /*Compose request header*/
         len = snprintf(buf, sizeof(buf), "%s /bot%s/%s HTTP/1.1\r\n"
         		"Host: "WEB_SERVER"\r\n"
                 /*"User-Agent: esp-idf/1.0 esp32\r\n"*/
 				"Connection: close\r\n",
-//				"\r\n",
 				http_mthd, BOT_TOKEN, t_mthd);
 
-        if (len < 0) return -1;
-
-        if ((req != NULL) && (req_len < (sizeof(buf) - len)))
+        if (len > 0)
         {
-        	len += snprintf(&buf[len], sizeof(buf) - len,
-        			"Content-Type: application/json\r\n"
-        			"Content-Length: %d\r\n\r\n", req_len); //TODO Check length
+        	http_req_len += len;
 
-        	len += snprintf(&buf[len], sizeof(buf) - len, "%s", req);
-//        	memcpy(&buf[len], req, req_len);
-//        	len += req_len;
-        }
-        else
-        {
-        	len += snprintf(&buf[len], sizeof(buf) - len, "\r\n");
-        }
-
-        ESP_LOGD(TAG, "HTTP Request: %s", buf);
-
-        size_t written_bytes = 0;
-        do {
-        	/*write request*/
-        	ret = esp_tls_conn_write(tls, buf + written_bytes, len - written_bytes);
-
-        	if (ret >= 0)
+        	if ((req != NULL) && (req_len < (sizeof(buf) - http_req_len)))
         	{
-        		ESP_LOGI(TAG, "%d bytes written", ret);
-        		written_bytes += ret;
-        	}
-        	else if (ret != ESP_TLS_ERR_SSL_WANT_READ  && ret != ESP_TLS_ERR_SSL_WANT_WRITE)
-        	{
-        		ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
-        		break;
-        	}
-        } while (written_bytes < len);
+        		/*Append request string*/
+        		len = snprintf(&buf[http_req_len], sizeof(buf) - len,
+        				"Content-Type: application/json\r\n"
+        				"Content-Length: %d\r\n\r\n", req_len);
 
-        if (written_bytes == len)
-        {
-        	ESP_LOGI(TAG, "Reading HTTP response...");
-
-        	do {
-        		len = sizeof(buf);
-        		bzero(buf, sizeof(buf));
-        		ret = esp_tls_conn_read(tls, (char *) buf, len);
-
-        		if (ret == ESP_TLS_ERR_SSL_WANT_WRITE  || ret == ESP_TLS_ERR_SSL_WANT_READ) {
-        			continue;
-        		}
-
-        		if (ret < 0) {
-        			ESP_LOGE(TAG, "esp_tls_conn_read  returned [-0x%02X](%s)", -ret, esp_err_to_name(ret));
-        			break;
-        		}
-
-        		if (ret == 0) {
-        			ESP_LOGI(TAG, "connection closed");
-        			break;
-        		}
-
-        		len = ret;
-        		ESP_LOGD(TAG, "%d bytes read", len);
-        		/* Print response directly to stdout as it is read */
-        		for (int i = 0; i < len; i++) {
-        			putchar(buf[i]);
-        		}
-        		putchar('\n'); // JSON output doesn't have a newline at end
-
-        		/*JSON beginning searching*/
-        		char *pch = strstr(buf, "\r\n{");
-        		if (pch != NULL)
+        		if (len > 0)
         		{
-        			ret_len = 0;
-        			len -= (pch - buf);
+        			http_req_len += len;
+
+        			len = snprintf(&buf[http_req_len], sizeof(buf) - http_req_len, "%s", req);
+
+        			if (len > 0) { http_req_len += len; }
+        			else { http_req_len = 0; }
         		}
         		else
         		{
-        			pch = buf;
+        			http_req_len = 0;
         		}
-        		/*Copy response*/
-        		while ((len > 0) && (ret_len < resp_len))
-        		{
-        			*resp++ = *pch++;
-        			ret_len++;
-        			len--;
-        		}
+        	}
+        	else
+        	{
+        		/*Append \r\n for GET request*/
+        		len = snprintf(&buf[http_req_len], sizeof(buf) - http_req_len, "\r\n");
 
-        	} while (ret != 0);
+        		if (len > 0) { http_req_len += len; }
+        		else { http_req_len = 0; }
+        	}
+
+        	ESP_LOGD(TAG, "HTTP Request: %s", buf);
+        }
+
+        if (http_req_len == 0)
+        {
+        	ESP_LOGE(TAG, "Request composing error");
+        }
+        else
+        {
+        	size_t written_bytes = 0;
+
+        	/*write request*/
+        	do {
+        		ret = esp_tls_conn_write(tls, buf + written_bytes, http_req_len - written_bytes);
+
+        		if (ret >= 0)
+        		{
+        			ESP_LOGI(TAG, "%d bytes written", ret);
+        			written_bytes += ret;
+        		}
+        		else if (ret != ESP_TLS_ERR_SSL_WANT_READ  && ret != ESP_TLS_ERR_SSL_WANT_WRITE)
+        		{
+        			ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
+        			break;
+        		}
+        	} while (written_bytes < http_req_len);
+
+        	/*Read response*/
+        	if (written_bytes == http_req_len)
+        	{
+        		ESP_LOGI(TAG, "Reading HTTP response...");
+
+        		do {
+        			len = sizeof(buf);
+        			bzero(buf, sizeof(buf));
+        			ret = esp_tls_conn_read(tls, (char *) buf, len);
+
+        			if (ret == ESP_TLS_ERR_SSL_WANT_WRITE  || ret == ESP_TLS_ERR_SSL_WANT_READ) {
+        				continue;
+        			}
+
+        			if (ret < 0) {
+        				ESP_LOGE(TAG, "esp_tls_conn_read  returned [-0x%02X](%s)", -ret, esp_err_to_name(ret));
+        				break;
+        			}
+
+        			if (ret == 0) {
+        				ESP_LOGI(TAG, "connection closed");
+        				break;
+        			}
+
+        			len = ret;
+        			ESP_LOGD(TAG, "%d bytes read", len);
+        			/* Print response directly to stdout as it is read */
+        			for (int i = 0; i < len; i++) {
+        				putchar(buf[i]);
+        			}
+        			putchar('\n'); // JSON output doesn't have a newline at end
+
+        			/*JSON beginning searching*/
+        			char *pch = strstr(buf, "\r\n{");
+        			if (pch != NULL)
+        			{
+        				ret_len = 0;
+        				len -= (pch - buf);
+        			}
+        			else
+        			{
+        				pch = buf;
+        			}
+        			/*Copy response*/
+        			while ((len > 0) && (ret_len < resp_len))
+        			{
+        				*resp++ = *pch++;
+        				ret_len++;
+        				len--;
+        			}
+
+        		} while (ret != 0);
+        	}
         }
     }
     else
@@ -187,6 +230,7 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
         ESP_LOGE(TAG, "Connection failed...");
     }
 
+    /*Delece connection*/
     esp_tls_conn_delete(tls);
 
     return ret_len;
@@ -323,6 +367,8 @@ static void TeleBot_Task(void *arg)
  */
 void TeleBot_MessageCallback(uint32_t chat_id, const char *msg)
 {
+	if (chat_id != 243661148) return;
+
 	ESP_LOGI(TAG, "Message from %d: %s", chat_id, msg);
 
 	/*MEssage echo*/
