@@ -275,12 +275,11 @@ static int32_t TeleBot_GetUpdates(int32_t *id)
 					cJSON_ArrayForEach(res_item, result)
 					{
 						/*Get update id*/
-						cJSON *upd_id = cJSON_GetObjectItemCaseSensitive(res_item, "update_id"); //TODO Check NULL
-						int32_t updt_id_val = upd_id->valueint;
-						if (updt_id_val >= *id)
+						cJSON *upd_id = cJSON_GetObjectItemCaseSensitive(res_item, "update_id");
+						if (upd_id != NULL && upd_id->valueint >= *id)
 						{
 							/*Recalculate offset*/
-							*id = updt_id_val + 1;
+							*id = upd_id->valueint + 1;
 						}
 
 						cJSON *message = cJSON_GetObjectItemCaseSensitive(res_item, "message");
