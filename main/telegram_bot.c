@@ -39,11 +39,13 @@ char url[256];
 char buf[512];
 char resp[512] = {0};
 
+static cJSON *mainMarkup = NULL;
+
 static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
 		char *req, uint32_t req_len,
 		char *resp, uint32_t resp_len);
 static void TeleBot_Task(void *arg);
-int32_t TeleBot_SendMessage(uint32_t chat_id, const char *msg);
+int32_t TeleBot_SendMessage(uint32_t chat_id, const char *msg, cJSON *markup);
 void TeleBot_MessageCallback(uint32_t chat_id, const char *msg);
 
 /**
@@ -143,7 +145,7 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
         		else { http_req_len = 0; }
         	}
 
-        	ESP_LOGD(TAG, "HTTP Request: %s", buf);
+        	ESP_LOGI(TAG, "HTTP Request: %s", buf);
         }
 
         if (http_req_len == 0)
@@ -309,12 +311,12 @@ static int32_t TeleBot_GetUpdates(int32_t *id)
 /**
  * Sends message
  */
-int32_t TeleBot_SendMessage(uint32_t chat_id, const char *msg)
+int32_t TeleBot_SendMessage(uint32_t chat_id, const char *msg, cJSON *markup)
 {
 	int32_t retval = -1;
 
 	/*Construct JSON method object*/
-	cJSON *message = cJSON_CreateObject();
+	cJSON *message = cJSON_CreateObjectReference(NULL);
 
 	if (message != NULL)
 	{
@@ -325,6 +327,11 @@ int32_t TeleBot_SendMessage(uint32_t chat_id, const char *msg)
 		{
 			cJSON_AddItemToObject(message, "chat_id", msg_chat_id);
 			cJSON_AddItemToObject(message, "text", msg_text);
+
+			if (markup != NULL)
+			{
+				cJSON_AddItemToObject(message, "reply_markup", markup);
+			}
 
 			char *req = cJSON_PrintUnformatted(message);
 
@@ -347,6 +354,32 @@ static void TeleBot_Task(void *arg)
 	(void) arg;
 	int32_t id = -1;
 	int32_t resp_len;
+
+	/*Create markup*/
+	cJSON *mainMarkup = cJSON_CreateObject();
+
+	if (mainMarkup != NULL)
+	{
+		cJSON *btn_enable = cJSON_CreateString("Вкл");
+		cJSON *btn_disable = cJSON_CreateString("Выкл");
+		cJSON *btn_settings = cJSON_CreateString("Настройки");
+
+		cJSON *btns = cJSON_CreateArray();
+		cJSON *row1 = cJSON_CreateArray();
+		cJSON *row2 = cJSON_CreateArray();
+
+		if (btn_disable != NULL && btn_enable != NULL && btn_settings != NULL &&
+				btns != NULL && row1 != NULL && row2 != NULL)
+		{
+			cJSON_AddItemToArray(row1, btn_enable);
+			cJSON_AddItemToArray(row1, btn_disable);
+			cJSON_AddItemToArray(row2, btn_settings);
+			cJSON_AddItemToArray(btns, row1);
+			cJSON_AddItemToArray(btns, row2);
+
+			cJSON_AddItemToObject(mainMarkup, "keyboard", btns);
+		}
+	}
 
 	while (1)
 	{
@@ -372,5 +405,5 @@ void TeleBot_MessageCallback(uint32_t chat_id, const char *msg)
 	ESP_LOGI(TAG, "Message from %d: %s", chat_id, msg);
 
 	/*MEssage echo*/
-	TeleBot_SendMessage(chat_id, msg);
+	TeleBot_SendMessage(chat_id, msg, mainMarkup);
 }
