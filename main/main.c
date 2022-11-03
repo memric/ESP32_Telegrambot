@@ -14,6 +14,8 @@
 #define WIFI_CONNECTED_BIT	BIT0
 #define WIFI_FAIL_BIT		BIT1
 
+#define LED_PIN				7
+
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
@@ -88,7 +90,7 @@ void app_main(void)
 			NULL,
 			&instance_got_ip));
 
-    ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
+//    ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
     ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
     wifi_config_t sta_config = {
         .sta = {
@@ -99,9 +101,17 @@ void app_main(void)
     };
     ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &sta_config) );
     ESP_ERROR_CHECK( esp_wifi_start() );
-    ESP_ERROR_CHECK( esp_wifi_connect() );
+//    ESP_ERROR_CHECK( esp_wifi_connect() );
 
-    gpio_set_direction(GPIO_NUM_2, GPIO_MODE_OUTPUT);
+    gpio_config_t io_conf = {};
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = (1 << LED_PIN);
+    io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+    gpio_set_level(LED_PIN, 1);
+
     int level = 0;
     while (true) {
 
@@ -129,7 +139,7 @@ void app_main(void)
     		}
     	}
 
-        gpio_set_level(GPIO_NUM_2, level);
+        gpio_set_level(LED_PIN, level);
         level = !level;
     }
 }
