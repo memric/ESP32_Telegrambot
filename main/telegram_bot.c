@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdint.h>
 #include <string.h>
+#include <inttypes.h>
 
 #ifndef USE_TLS_BUNDLE
 #define USE_TLS_BUNDLE		0
@@ -98,9 +99,14 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
     ESP_LOGD(TAG, "HTTPS url: %s", url);
 
     /*Set connection*/
-    struct esp_tls *tls = esp_tls_conn_http_new(url, &cfg);
+    esp_tls_t *tls = esp_tls_init();
+    if (!tls)
+    {
+        ESP_LOGE(TAG, "Failed to allocate esp_tls handle!");
+        return -1;
+    }
 
-    if (tls != NULL)
+    if (esp_tls_conn_http_new_sync(url, &cfg, tls) == 1)
     {
         ESP_LOGI(TAG, "Connection established...");
 
@@ -120,7 +126,7 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
         		/*Append request string*/
         		len = snprintf(&buf[http_req_len], sizeof(buf) - len,
         				"Content-Type: application/json\r\n"
-        				"Content-Length: %d\r\n\r\n", req_len);
+        				"Content-Length: %"PRIu32"\r\n\r\n", req_len);
 
         		if (len > 0)
         		{
@@ -162,12 +168,12 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
 
         		if (ret >= 0)
         		{
-        			ESP_LOGI(TAG, "%d bytes written", ret);
+        			ESP_LOGI(TAG, "%"PRIi32" bytes written", ret);
         			written_bytes += ret;
         		}
         		else if (ret != ESP_TLS_ERR_SSL_WANT_READ  && ret != ESP_TLS_ERR_SSL_WANT_WRITE)
         		{
-        			ESP_LOGE(TAG, "esp_tls_conn_write  returned: [0x%02X](%s)", ret, esp_err_to_name(ret));
+        			ESP_LOGE(TAG, "esp_tls_conn_write returned: [0x%02"PRIx32"](%s)", ret, esp_err_to_name(ret));
         			break;
         		}
         	} while (written_bytes < http_req_len);
@@ -187,7 +193,7 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
         			}
 
         			if (ret < 0) {
-        				ESP_LOGE(TAG, "esp_tls_conn_read  returned [-0x%02X](%s)", -ret, esp_err_to_name(ret));
+        				ESP_LOGE(TAG, "esp_tls_conn_read returned [-0x%02"PRIx32"](%s)", -ret, esp_err_to_name(ret));
         				break;
         			}
 
@@ -197,7 +203,7 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
         			}
 
         			len = ret;
-        			ESP_LOGD(TAG, "%d bytes read", len);
+        			ESP_LOGD(TAG, "%"PRIi32" bytes read", len);
         			/* Print response directly to stdout as it is read */
         			for (int i = 0; i < len; i++) {
         				putchar(buf[i]);
@@ -232,8 +238,8 @@ static int32_t TeleBot_Http_Request(const char *http_mthd, const char *t_mthd,
         ESP_LOGE(TAG, "Connection failed...");
     }
 
-    /*Delece connection*/
-    esp_tls_conn_delete(tls);
+    /*Delete connection*/
+    esp_tls_conn_destroy(tls);
 
     return ret_len;
 }
@@ -334,6 +340,8 @@ int32_t TeleBot_SendMessage(uint32_t chat_id, const char *msg, cJSON *markup)
 
 			char *req = cJSON_PrintUnformatted(message);
 
+			ESP_LOGD(TAG, "sendMessage: %s", req);
+
 			retval = TeleBot_Http_Request("POST", "sendMessage", req, strlen(req), resp, sizeof(resp));
 
 			free(req);
@@ -355,24 +363,24 @@ static void TeleBot_Task(void *arg)
 	int32_t resp_len;
 
 	/*Create markup*/
-	cJSON *mainMarkup = cJSON_CreateObject();
+	mainMarkup = cJSON_CreateObject();
 
 	if (mainMarkup != NULL)
 	{
-		cJSON *btn_enable = cJSON_CreateString("Вкл");
-		cJSON *btn_disable = cJSON_CreateString("Выкл");
-		cJSON *btn_settings = cJSON_CreateString("Настройки");
+		cJSON *btn1 = cJSON_CreateString("Btn1");
+		cJSON *btn2 = cJSON_CreateString("Btn2");
+		cJSON *btn3 = cJSON_CreateString("Btn3");
 
 		cJSON *btns = cJSON_CreateArray();
 		cJSON *row1 = cJSON_CreateArray();
 		cJSON *row2 = cJSON_CreateArray();
 
-		if (btn_disable != NULL && btn_enable != NULL && btn_settings != NULL &&
+		if (btn2 != NULL && btn1 != NULL && btn3 != NULL &&
 				btns != NULL && row1 != NULL && row2 != NULL)
 		{
-			cJSON_AddItemToArray(row1, btn_enable);
-			cJSON_AddItemToArray(row1, btn_disable);
-			cJSON_AddItemToArray(row2, btn_settings);
+			cJSON_AddItemToArray(row1, btn1);
+			cJSON_AddItemToArray(row1, btn2);
+			cJSON_AddItemToArray(row2, btn3);
 			cJSON_AddItemToArray(btns, row1);
 			cJSON_AddItemToArray(btns, row2);
 
@@ -401,8 +409,8 @@ void TeleBot_MessageCallback(uint32_t chat_id, const char *msg)
 {
 	if (chat_id != 243661148) return;
 
-	ESP_LOGI(TAG, "Message from %d: %s", chat_id, msg);
+	ESP_LOGI(TAG, "Message from %"PRIu32": %s", chat_id, msg);
 
-	/*MEssage echo*/
+	/*Message echo*/
 	TeleBot_SendMessage(chat_id, msg, mainMarkup);
 }

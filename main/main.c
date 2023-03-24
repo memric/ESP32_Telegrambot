@@ -14,18 +14,13 @@
 #define WIFI_CONNECTED_BIT	BIT0
 #define WIFI_FAIL_BIT		BIT1
 
-#define LED_PIN				7
+#define LED_PIN				2
 
 /* FreeRTOS event group to signal when we are connected*/
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 
 static const char *TAG = "MAIN";
-
-esp_err_t event_handler(void *ctx, system_event_t *event)
-{
-    return ESP_OK;
-}
 
 static void wifi_event_handler(void* arg, esp_event_base_t event_base,
                                 int32_t event_id, void* event_data)
