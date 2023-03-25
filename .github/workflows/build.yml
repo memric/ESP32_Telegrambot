@@ -9,7 +9,7 @@ jobs:
         idf_ver: ["latest"]
         idf_target: ["esp32", "esp32s2", "esp32c3"]
     runs-on: ubuntu-20.04
-    container: espressif/idf:release-${{ matrix.idf_ver }}
+    container: espressif/idf:${{ matrix.idf_ver }}
     steps:
       - name: Build ESP project
         env:
