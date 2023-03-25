@@ -1,0 +1,20 @@
+name: build
+
+on: [push, pull_request]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        idf_ver: ["latest"]
+        idf_target: ["esp32", "esp32s2", "esp32c3"]
+    runs-on: ubuntu-20.04
+    container: espressif/idf:release-${{ matrix.idf_ver }}
+    steps:
+      - name: Build ESP project
+        env:
+          IDF_TARGET: ${{ matrix.idf_target }}
+        shell: bash
+        run: |
+          . ${IDF_PATH}/export.sh
+          idf.py build
